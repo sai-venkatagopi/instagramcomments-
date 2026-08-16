@@ -2,7 +2,10 @@ import os
 
 API_KEY = os.getenv("API_KEY", "cGFtYXJ0aGlzYWkyNTA0QGdtYWlsLmNvbQ.cb51e5f9024ee0fad316")
 MOCK_API_BASE = os.getenv("MOCK_API_BASE", "https://pseudogram-api.onrender.com")
-DATABASE_PATH = os.getenv("DATABASE_PATH", "linkplease.db")
+if os.environ.get("VERCEL"):
+    DATABASE_PATH = "/tmp/linkplease.db"
+else:
+    DATABASE_PATH = os.getenv("DATABASE_PATH", "linkplease.db")
 
 # Rate Limit Configuration
 RATE_LIMIT_WINDOW = float(os.getenv("RATE_LIMIT_WINDOW", "60.0"))
