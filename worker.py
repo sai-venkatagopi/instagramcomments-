@@ -229,3 +229,105 @@ async def reconcile_worker_loop():
             except Exception as outer_err:
                 print(f"[Reconciler Error] Unhandled exception in reconciler worker: {outer_err}")
                 await asyncio.sleep(2.0)
+
+
+async def process_queue_single_pass(limit: int = 10) -> dict:
+    """
+    Single pass helper to process pending DMs and reconcile statuses for serverless/cron calls.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # 1. Process pending DMs
+        pending_dms = database.get_pending_dms(limit=limit)
+        processed = 0
+        for dm in pending_dms:
+            queue_id = dm["id"]
+            comment_id = dm["comment_id"]
+            user_id = dm["user_id"]
+            message = dm["message"]
+            attempts = dm["attempts"]
+
+            if database.is_comment_deleted(comment_id):
+                database.update_dm_status(
+                    queue_id,
+                    status="duplicates_blocked",
+                    last_error="Comment deleted before dispatch"
+                )
+                database.increment_metric("duplicates_blocked")
+                continue
+
+            await rate_limiter.acquire()
+            database.update_dm_status(queue_id, status="sending")
+
+            headers = {
+                "X-API-Key": config.API_KEY,
+                "Content-Type": "application/json",
+                "Idempotency-Key": f"dm_idempotent_{queue_id}"
+            }
+            payload = {
+                "recipient_user_id": user_id,
+                "message": message,
+                "comment_id": comment_id
+            }
+
+            try:
+                resp = await client.post(
+                    f"{config.MOCK_API_BASE}/v1/dm/send",
+                    json=payload,
+                    headers=headers
+                )
+                if resp.status_code in (200, 202):
+                    data = resp.json()
+                    database.update_dm_status(
+                        queue_id,
+                        status="api_accepted",
+                        dm_id=data.get("dm_id"),
+                        attempts=attempts + 1
+                    )
+                    processed += 1
+                elif resp.status_code == 429:
+                    database.update_dm_status(
+                        queue_id,
+                        status="queued",
+                        attempts=attempts + 1,
+                        last_error="API 429 Rate limited"
+                    )
+                else:
+                    database.update_dm_status(
+                        queue_id,
+                        status="failed",
+                        attempts=attempts + 1,
+                        last_error=f"API {resp.status_code}"
+                    )
+            except Exception as e:
+                database.update_dm_status(
+                    queue_id,
+                    status="queued",
+                    attempts=attempts + 1,
+                    last_error=f"Exception {str(e)}"
+                )
+
+        # 2. Reconcile accepted DMs
+        accepted_dms = database.get_api_accepted_dms(limit=limit)
+        reconciled = 0
+        for dm in accepted_dms:
+            queue_id = dm["id"]
+            dm_id = dm["dm_id"]
+            headers = {"X-API-Key": config.API_KEY}
+            try:
+                resp = await client.get(
+                    f"{config.MOCK_API_BASE}/v1/dm/{dm_id}",
+                    headers=headers
+                )
+                if resp.status_code == 200:
+                    st = resp.json().get("status")
+                    if st == "delivered":
+                        database.update_dm_status(queue_id, status="delivered")
+                        reconciled += 1
+                    elif st == "failed":
+                        database.update_dm_status(queue_id, status="failed", last_error="API status failed")
+                        reconciled += 1
+            except Exception:
+                pass
+
+        return {"processed": processed, "reconciled": reconciled}
+

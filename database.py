@@ -118,11 +118,24 @@ def add_rule(keyword: str, dm_message: str) -> dict:
     created_at = get_iso_now()
     clean_keyword = keyword.strip()
     with get_db() as conn:
-        conn.execute(
-            "INSERT INTO rules (rule_id, keyword, dm_message, created_at) VALUES (?, ?, ?, ?)",
-            (rule_id, clean_keyword, dm_message, created_at)
-        )
-        conn.commit()
+        try:
+            conn.execute(
+                "INSERT INTO rules (rule_id, keyword, dm_message, created_at) VALUES (?, ?, ?, ?)",
+                (rule_id, clean_keyword, dm_message, created_at)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.execute(
+                "UPDATE rules SET dm_message = ? WHERE lower(keyword) = lower(?)",
+                (dm_message, clean_keyword)
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT rule_id, keyword, dm_message, created_at FROM rules WHERE lower(keyword) = lower(?)",
+                (clean_keyword,)
+            ).fetchone()
+            return dict(row)
+            
     return {
         "rule_id": rule_id,
         "keyword": clean_keyword,

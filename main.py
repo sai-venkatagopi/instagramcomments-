@@ -8,9 +8,11 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 import httpx
 
+from typing import Optional
 import config
 import database
-from worker import dispatch_worker_loop, reconcile_worker_loop
+from worker import dispatch_worker_loop, reconcile_worker_loop, process_queue_single_pass
+from local_simulator import run_simulation
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,8 +37,8 @@ class RuleCreateRequest(BaseModel):
     dm_message: str
 
 class SimulateRequest(BaseModel):
-    webhook_url: str
-    count: int = 500
+    webhook_url: Optional[str] = None
+    count: int = 10
     duration_seconds: int = 10
 
 
@@ -175,29 +177,55 @@ async def get_logs(limit: int = 50):
     return database.get_recent_logs(limit=limit)
 
 @app.post("/api/simulate")
-async def trigger_simulation(req: SimulateRequest):
+async def trigger_simulation(req: Optional[SimulateRequest] = None):
     """
-    Triggers simulator test run on mock API server.
+    Triggers simulation test run.
+    If webhook_url points to mock API remote host, calls mock API server.
+    Otherwise runs local batch simulation directly.
     """
-    async with httpx.AsyncClient() as client:
-        headers = {
-            "X-API-Key": config.API_KEY,
-            "Content-Type": "application/json"
+    count = req.count if req and req.count else 10
+    webhook_url = req.webhook_url if req else None
+
+    if webhook_url and "pseudogram-api" in webhook_url:
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "X-API-Key": config.API_KEY,
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "webhook_url": webhook_url,
+                "count": count,
+                "duration_seconds": req.duration_seconds if req else 10
+            }
+            resp = await client.post(
+                f"{config.MOCK_API_BASE}/v1/simulate/start",
+                json=payload,
+                headers=headers
+            )
+            if resp.status_code in (200, 202):
+                return resp.json()
+            else:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    else:
+        target = webhook_url or "http://127.0.0.1:8000/webhook"
+        res = run_simulation(count=count, target_url=target)
+        return {
+            "status": "success",
+            "message": f"Dispatched {res.get('dispatched', count)} simulated Instagram DMs",
+            "data": res
         }
-        payload = {
-            "webhook_url": req.webhook_url,
-            "count": req.count,
-            "duration_seconds": req.duration_seconds
-        }
-        resp = await client.post(
-            f"{config.MOCK_API_BASE}/v1/simulate/start",
-            json=payload,
-            headers=headers
-        )
-        if resp.status_code == 200 or resp.status_code == 202:
-            return resp.json()
-        else:
-            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+@app.get("/api/cron/process-queue")
+async def vercel_cron_process_queue():
+    """
+    Triggered by Vercel Cron Jobs every minute to process pending DMs in serverless environments.
+    """
+    cron_res = await process_queue_single_pass(limit=10)
+    return {
+        "status": "success",
+        "message": "Processed pending DM queue via Vercel Cron",
+        "cron_result": cron_res
+    }
 
 @app.get("/api/simulate/{run_id}/truth")
 async def get_simulation_truth(run_id: str):

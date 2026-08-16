@@ -182,9 +182,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (res.ok) {
                 const data = await res.json();
                 activeRunId = data.run_id || data.id;
-                simStatusText.textContent = `Simulation Started! Processing background load...`;
-                simRunIdText.textContent = `Run ID: ${activeRunId || 'Active'}`;
-                checkTruthBtn.style.display = "inline-flex";
+                simStatusText.textContent = data.message || `Simulation Started! Processing background load...`;
+                simRunIdText.textContent = activeRunId ? `Run ID: ${activeRunId}` : `Status: ${data.status || 'Success'}`;
+                if (activeRunId) checkTruthBtn.style.display = "inline-flex";
             } else {
                 const errData = await res.json();
                 simSpinner.classList.add("hidden");
@@ -195,6 +195,33 @@ document.addEventListener("DOMContentLoaded", () => {
             simStatusText.textContent = `Error: ${err.message}`;
         }
     });
+
+    const quickBatchBtn = document.getElementById("quick-batch-sim-btn");
+    if (quickBatchBtn) {
+        quickBatchBtn.addEventListener("click", async () => {
+            simStatusBox.classList.remove("hidden");
+            simSpinner.classList.remove("hidden");
+            simStatusText.textContent = "Running Quick 10-Event Simulation...";
+            simRunIdText.textContent = "";
+            checkTruthBtn.style.display = "none";
+
+            try {
+                const res = await fetch("/api/simulate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ count: 10 })
+                });
+                const data = await res.json();
+                simSpinner.classList.add("hidden");
+                simStatusText.textContent = data.message || "Dispatched 10 simulated Instagram DMs!";
+                fetchStats();
+                fetchLogs();
+            } catch (err) {
+                simSpinner.classList.add("hidden");
+                simStatusText.textContent = `Error: ${err.message}`;
+            }
+        });
+    }
 
     // --- Fetch Simulation Ground Truth ---
     checkTruthBtn.addEventListener("click", async () => {

@@ -119,9 +119,12 @@
                                 <input type="number" id="sim-duration" value="10" min="1" max="60">
                             </div>
                         </div>
-                        <div class="sim-actions">
+                        <div class="sim-actions" style="display: flex; flex-direction: column; gap: 8px;">
                             <button type="submit" class="btn btn-accent" id="start-sim-btn">
                                 ⚡ Start 500-Event Load Test
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="quick-batch-sim-btn">
+                                ⚡ Run Quick 10-Event Simulation
                             </button>
                         </div>
                     </form>

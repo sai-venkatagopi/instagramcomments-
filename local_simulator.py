@@ -6,8 +6,6 @@ import json
 import httpx
 import config
 
-TARGET_WEBHOOK = "http://127.0.0.1:8000/webhook"
-
 def generate_event(event_id, user_id, comment_id, is_match=True, is_duplicate=False):
     keywords = ["PRICE", "price", "how much is this PRICE?", "info please", "random comment"]
     text = random.choice(keywords) if is_match else "Nice photo!"
@@ -28,28 +26,36 @@ def generate_event(event_id, user_id, comment_id, is_match=True, is_duplicate=Fa
         }
     }
 
-def main():
-    print("⚡ Starting Local 500-Event Load Test against http://127.0.0.1:8000/webhook...")
-    
-    # Ensure rule exists
-    httpx.post("http://127.0.0.1:8000/rules", json={"keyword": "PRICE", "dm_message": "Here is the price list!"})
-    
+def run_simulation(count: int = 10, target_url: str = "http://127.0.0.1:8000/webhook") -> dict:
+    """
+    Runs a simulation batch of `count` events against `target_url`.
+    """
+    try:
+        base_origin = target_url.rsplit("/webhook", 1)[0] if "/webhook" in target_url else "http://127.0.0.1:8000"
+        httpx.post(
+            f"{base_origin}/rules",
+            json={"keyword": "PRICE", "dm_message": "Here is the price list!"},
+            timeout=2.0
+        )
+    except Exception:
+        pass
+
     events = []
-    # Create 50 distinct users, each posting ~10 comments = 500 events total
-    users = [f"usr_sim_{i}" for i in range(1, 51)]
-    
-    for i in range(500):
-        evt_id = f"evt_sim_{i+1:04d}"
-        cmt_id = f"cmt_sim_{i+1:04d}"
+    num_users = max(1, count // 5)
+    users = [f"usr_sim_{i}" for i in range(1, num_users + 1)]
+
+    for i in range(count):
+        evt_id = f"evt_sim_{random.randint(1, 99999):05d}"
+        cmt_id = f"cmt_sim_{random.randint(1, 99999):05d}"
         user_id = random.choice(users)
         
-        # 8% chance of repeating an event_id
-        if i > 10 and random.random() < 0.08:
-            evt_id = f"evt_sim_{random.randint(1, i):04d}"
+        # 8% chance of duplicate event_id
+        if i > 5 and random.random() < 0.08:
+            evt_id = events[random.randint(0, i - 1)]["event_id"]
             
         evt = generate_event(evt_id, user_id, cmt_id, is_match=True)
         events.append(evt)
-        
+
     start_time = time.time()
     success_count = 0
     
@@ -57,31 +63,30 @@ def main():
         for idx, evt in enumerate(events):
             raw_body = json.dumps(evt).encode("utf-8")
             sig = "sha256=" + hmac.new(config.API_KEY.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
-            
             headers = {
                 "Content-Type": "application/json",
                 "X-PseudoGram-Signature": sig
             }
-            
-            resp = client.post(TARGET_WEBHOOK, content=raw_body, headers=headers)
-            if resp.status_code == 200:
-                success_count += 1
-                
-            # Pace over ~5-10 seconds
-            if idx % 50 == 0:
-                time.sleep(0.1)
+            try:
+                resp = client.post(target_url, content=raw_body, headers=headers)
+                if resp.status_code == 200:
+                    success_count += 1
+            except Exception as err:
+                print(f"Error posting event to {target_url}: {err}")
 
     duration = time.time() - start_time
-    print(f"✅ Dispatched 500 events in {duration:.2f} seconds. Webhook 200 OK responses: {success_count}/500.")
-    
-    print("\n📊 Monitoring background queue processing and status reconciliation...")
-    for _ in range(15):
-        time.sleep(2)
-        stats = httpx.get("http://127.0.0.1:8000/stats").json()
-        print(f"   Stats: sent={stats['sent']}, queued={stats['queued']}, duplicates_blocked={stats['duplicates_blocked']}, failed={stats['failed']}")
-        if stats['queued'] == 0:
-            print("\n🎉 All queued DMs fully processed and reconciled!")
-            break
+    return {
+        "status": "success",
+        "count": count,
+        "dispatched": success_count,
+        "duration_seconds": round(duration, 2),
+        "message": f"Dispatched {success_count}/{count} simulated Instagram DMs"
+    }
+
+def main():
+    print("⚡ Starting Local 500-Event Load Test...")
+    result = run_simulation(count=500, target_url="http://127.0.0.1:8000/webhook")
+    print(f"✅ Result: {result}")
 
 if __name__ == "__main__":
     main()
