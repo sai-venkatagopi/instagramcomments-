@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkPlease — Instagram Automation Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="top-bar">
+            <div class="brand">
+                <div class="logo-icon">⚡</div>
+                <div>
+                    <h1>LinkPlease <span>Automate</span></h1>
+                    <p class="subtitle">Mock Instagram API Automation & Load Resilience Engine</p>
+                </div>
+            </div>
+            <div class="api-status-chip">
+                <span class="pulse-dot"></span>
+                <span>System Active</span>
+            </div>
+        </header>
+
+        <!-- Live Stats Grid -->
+        <section class="stats-grid">
+            <div class="stat-card sent">
+                <div class="stat-header">
+                    <span class="stat-label">Confirmed Sent</span>
+                    <span class="stat-icon">✅</span>
+                </div>
+                <div class="stat-value" id="stat-sent">0</div>
+                <div class="stat-desc">DMs confirmed delivered by API</div>
+            </div>
+
+            <div class="stat-card queued">
+                <div class="stat-header">
+                    <span class="stat-label">Queued / Processing</span>
+                    <span class="stat-icon">⏳</span>
+                </div>
+                <div class="stat-value" id="stat-queued">0</div>
+                <div class="stat-desc">Rate-limited & awaiting reconciliation</div>
+            </div>
+
+            <div class="stat-card blocked">
+                <div class="stat-header">
+                    <span class="stat-label">Duplicates Blocked</span>
+                    <span class="stat-icon">🛡️</span>
+                </div>
+                <div class="stat-value" id="stat-blocked">0</div>
+                <div class="stat-desc">Duplicate users & deleted comments</div>
+            </div>
+
+            <div class="stat-card failed">
+                <div class="stat-header">
+                    <span class="stat-label">Failed</span>
+                    <span class="stat-icon">⚠️</span>
+                </div>
+                <div class="stat-value" id="stat-failed">0</div>
+                <div class="stat-desc">Max retries exceeded</div>
+            </div>
+        </section>
+
+        <!-- Main Layout Columns -->
+        <div class="main-content-grid">
+            <!-- Left Column: Rules & Simulation -->
+            <div class="left-col">
+                <!-- Rules Management Card -->
+                <div class="glass-card">
+                    <div class="card-header">
+                        <h2><span class="header-icon">🎯</span> Automation Rules</h2>
+                        <span class="badge" id="rule-count-badge">0 Active</span>
+                    </div>
+
+                    <form id="create-rule-form" class="rule-form">
+                        <div class="form-group">
+                            <label for="keyword-input">Keyword (Case Insensitive)</label>
+                            <input type="text" id="keyword-input" placeholder="e.g. PRICE" required autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="message-input">DM Response Message</label>
+                            <textarea id="message-input" rows="2" placeholder="e.g. Hey! Here is our complete price catalog: https://..." required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="add-rule-btn">
+                            <span>+ Create Rule</span>
+                        </button>
+                    </form>
+
+                    <div class="rules-list" id="rules-list">
+                        <!-- Rules populated dynamically -->
+                        <div class="empty-state">No rules configured yet. Create one above!</div>
+                    </div>
+                </div>
+
+                <!-- Simulation Testing Panel -->
+                <div class="glass-card simulation-card">
+                    <div class="card-header">
+                        <h2><span class="header-icon">🚀</span> High Load Simulator</h2>
+                        <span class="badge badge-accent">Hostile API Test</span>
+                    </div>
+                    <p class="sim-desc">Fire simulated comment events to test rate limiting (10 req/60s), deduplication, and retry reconciliation.</p>
+                    
+                    <form id="simulation-form" class="sim-form">
+                        <div class="form-group">
+                            <label for="webhook-url-input">Target Webhook Base URL</label>
+                            <input type="url" id="webhook-url-input" placeholder="http://localhost:8000/webhook" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="sim-count">Event Count</label>
+                                <input type="number" id="sim-count" value="500" min="10" max="1000">
+                            </div>
+                            <div class="form-group">
+                                <label for="sim-duration">Duration (Seconds)</label>
+                                <input type="number" id="sim-duration" value="10" min="1" max="60">
+                            </div>
+                        </div>
+                        <div class="sim-actions">
+                            <button type="submit" class="btn btn-accent" id="start-sim-btn">
+                                ⚡ Start 500-Event Load Test
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="sim-status-box" class="sim-status-box hidden">
+                        <div class="sim-status-header">
+                            <span class="spinner" id="sim-spinner"></span>
+                            <span id="sim-status-text">Simulation Running...</span>
+                        </div>
+                        <div class="sim-run-id" id="sim-run-id-text"></div>
+                        <button class="btn btn-sm btn-secondary" id="check-truth-btn" style="margin-top: 10px; display: none;">
+                            📊 Fetch Server Ground Truth
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Live Audit Trail -->
+            <div class="right-col">
+                <div class="glass-card log-card">
+                    <div class="card-header">
+                        <h2><span class="header-icon">📋</span> Real-Time DM Dispatch Stream</h2>
+                        <button class="btn btn-sm btn-secondary" id="refresh-logs-btn">🔄 Refresh</button>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="audit-table">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Recipient</th>
+                                    <th>Comment ID</th>
+                                    <th>Message / Rule</th>
+                                    <th>Attempts</th>
+                                    <th>Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-tbody">
+                                <tr>
+                                    <td colspan="6" class="empty-state">No DMs dispatched yet. Start a simulation or trigger a comment webhook!</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ground Truth Modal -->
+    <div id="truth-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <h3>📊 Mock Server Ground Truth Comparison</h3>
+                <button class="close-modal-btn" id="close-modal-btn">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body-content">
+                <div class="loading-text">Fetching simulation ground truth...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
