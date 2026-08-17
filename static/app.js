@@ -286,3 +286,8 @@ document.addEventListener("DOMContentLoaded", () => {
     setInterval(fetchStats, 1500);
     setInterval(fetchLogs, 3000);
 });
+
+async function runSim() {
+    await fetch('/api/simulate');
+    location.reload();
+}

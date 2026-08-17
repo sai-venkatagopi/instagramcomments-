@@ -176,6 +176,7 @@ async def delete_rule(rule_id: str):
 async def get_logs(limit: int = 50):
     return database.get_recent_logs(limit=limit)
 
+@app.get("/api/simulate")
 @app.post("/api/simulate")
 async def trigger_simulation(req: Optional[SimulateRequest] = None):
     """
